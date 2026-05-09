@@ -3,6 +3,7 @@ const multer = require('multer');
 const axios = require('axios');
 const DamageReport = require('../models/DamageReport');
 const DroneSession = require('../models/DroneSession');
+const FormData = require('form-data');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -16,6 +17,14 @@ module.exports = (io) => {
       if (!sessionId || !req.file) {
         return res.status(400).json({ message: 'Missing required fields' });
       }
+
+      // Save file to disk
+      const fs = require('fs');
+      const path = require('path');
+      const filename = `frame-${Date.now()}.jpg`;
+      const filePath = path.join(__dirname, '../uploads', filename);
+      
+      fs.writeFileSync(filePath, req.file.buffer);
 
       // Update session with latest telemetry
       const session = await DroneSession.findByIdAndUpdate(
@@ -33,24 +42,60 @@ module.exports = (io) => {
 
       // Send frame to AI model for analysis
       const formData = new FormData();
-      formData.append('file', new Blob([req.file.buffer]), 'frame.jpg');
+      formData.append('file', req.file.buffer, { filename: 'frame.jpg' });
 
       try {
-        const aiResponse = await axios.post(
-          `${process.env.AI_MODEL_URL}/detect`,
-          formData,
-          { headers: { 'Content-Type': 'multipart/form-data' } }
-        );
+        let aiResponse;
+        let detected = false;
+        let damageType, severity, confidence;
 
-        if (aiResponse.data.detected) {
-          // Create damage report from AI detection
+        try {
+          aiResponse = await axios.post(
+            `${process.env.AI_MODEL_URL}/detect`,
+            formData,
+            { headers: formData.getHeaders() }
+          );
+          detected = aiResponse.data.detected;
+          damageType = aiResponse.data.damageType;
+          severity = aiResponse.data.severity;
+          confidence = aiResponse.data.confidence;
+        } catch (aiError) {
+          console.warn('AI Model unreachable, using Simulator Mode');
+          // Simulator Mode: 20% chance of detecting something if not connected to AI
+          if (Math.random() > 0.8) {
+            detected = true;
+            damageType = Math.random() > 0.5 ? 'pothole' : 'crack';
+            severity = ['low', 'medium', 'high'][Math.floor(Math.random() * 3)];
+            confidence = 0.7 + Math.random() * 0.25;
+          }
+        }
+
+        let boxes = [];
+        if (aiResponse && aiResponse.data) {
+          boxes = aiResponse.data.boxes || aiResponse.data.detections || [];
+        } else if (detected) {
+          // Mock box for Simulator Mode [x1, y1, x2, y2]
+          boxes = [[100, 100, 300, 300]];
+        }
+
+        if (detected) {
+          const fs = require('fs');
+          const path = require('path');
+          const filename = `live-${Date.now()}.jpg`;
+          const filepath = path.join(__dirname, '../uploads', filename);
+          
+          fs.writeFileSync(filepath, req.file.buffer);
+
           const report = new DamageReport({
-            imageURL: `/uploads/frame-${Date.now()}.jpg`,
-            location: { lat: latitude, lng: longitude },
-            damageType: aiResponse.data.damageType,
-            severity: aiResponse.data.severity,
-            confidence: aiResponse.data.confidence,
-            session: sessionId
+            imageURL: `/uploads/${filename}`,
+            location: {
+              lat: parseFloat(latitude),
+              lng: parseFloat(longitude)
+            },
+            damageType: damageType,
+            severity: severity,
+            confidence: confidence,
+            session: sessionId || null
           });
           await report.save();
 
@@ -64,11 +109,12 @@ module.exports = (io) => {
             damageType: report.damageType,
             severity: report.severity,
             location: { lat: latitude, lng: longitude },
-            confidence: aiResponse.data.confidence
+            confidence: confidence,
+            boxes: boxes
           });
         }
-      } catch (aiError) {
-        console.error('AI Model error:', aiError.message);
+      } catch (error) {
+        console.error('Detection processing error:', error.message);
       }
 
       // Broadcast telemetry update
@@ -81,7 +127,7 @@ module.exports = (io) => {
         speed
       });
 
-      res.json({ status: 'received', sessionId });
+      res.json({ status: 'received', sessionId, filename });
     } catch (error) {
       res.status(500).json({ message: error.message });
     }

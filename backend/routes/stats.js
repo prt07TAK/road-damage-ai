@@ -11,11 +11,11 @@ router.get('/summary', async (req, res) => {
     const totalSessions = await DroneSession.countDocuments();
     
     const reports = await DamageReport.find();
-    const damageTypeBreakdown = {
-      cracks: reports.filter(r => r.damageType === 'crack').length,
-      potholes: reports.filter(r => r.damageType === 'pothole').length,
-      undamaged: reports.filter(r => r.damageType === 'undamaged').length
-    };
+    const damageTypeBreakdown = reports.reduce((acc, report) => {
+      const type = report.damageType || 'unknown';
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {});
 
     const severityBreakdown = {
       high: reports.filter(r => r.severity === 'high').length,

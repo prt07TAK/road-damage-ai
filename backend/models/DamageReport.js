@@ -17,12 +17,12 @@ const DamageReportSchema = new mongoose.Schema({
   },
   damageType: {
     type: String,
-    enum: ['crack', 'pothole', 'undamaged'],
+    enum: ['crack', 'pothole', 'rutting', 'patch', 'debris', 'undamaged', 'intact'],
     required: true
   },
   severity: {
     type: String,
-    enum: ['low', 'medium', 'high'],
+    enum: ['low', 'medium', 'high', 'critical', 'normal'],
     required: true
   },
   confidence: {

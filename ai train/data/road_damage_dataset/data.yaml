@@ -1,0 +1,12 @@
+names:
+  0: pothole
+  1: crack
+  2: rut
+  3: patch
+  4: debris
+  5: intact_road
+nc: 6
+path: data\road_damage_dataset
+test: images/test
+train: images/train
+val: images/val

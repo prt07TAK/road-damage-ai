@@ -20,19 +20,57 @@ const upload = multer({ storage });
 // POST - Create new damage report
 router.post('/', authMiddleware, upload.single('image'), async (req, res) => {
   try {
-    const { location, damageType, severity, session, notes } = req.body;
+    let { location, damageType, severity, session, notes, confidence } = req.body;
     
-    if (!location || !damageType || !severity) {
-      return res.status(400).json({ message: 'Missing required fields' });
+    if (!location) {
+      return res.status(400).json({ message: 'Location is required' });
     }
 
     const parsedLocation = typeof location === 'string' ? JSON.parse(location) : location;
+    const imageURL = req.file ? `/uploads/${req.file.filename}` : '';
+
+    // Trigger AI detection if an image is uploaded and no detection results are provided
+    if (req.file && (!damageType || damageType === 'Analyzing...')) {
+      try {
+        const fs = require('fs');
+        const FormData = require('form-data');
+        const formData = new FormData();
+        formData.append('file', fs.createReadStream(req.file.path));
+
+        const aiResponse = await axios.post(
+          `${process.env.AI_MODEL_URL}/detect`,
+          formData,
+          { headers: formData.getHeaders() }
+        );
+
+        if (aiResponse.data.detected) {
+          damageType = aiResponse.data.damageType;
+          severity = aiResponse.data.severity;
+          confidence = aiResponse.data.confidence;
+        } else {
+          damageType = 'undamaged';
+          severity = 'low';
+          confidence = aiResponse.data.confidence || 1.0;
+        }
+      } catch (aiError) {
+        console.error('AI detection failed:', aiError.message);
+        // Fallback to safe defaults if AI fails
+        damageType = 'undamaged';
+        severity = 'low';
+        confidence = 0.0;
+      }
+    }
+
+    // Double check that we don't have "Analyzing..." in the final report
+    const finalDamageType = (damageType && damageType !== 'Analyzing...') ? damageType : 'undamaged';
+    const finalSeverity = (severity && severity !== 'Analyzing...') ? severity : 'low';
 
     const report = new DamageReport({
-      imageURL: req.file ? `/uploads/${req.file.filename}` : '',
+      imageURL,
       location: parsedLocation,
-      damageType,
-      severity,
+      damageType: finalDamageType,
+      severity: finalSeverity,
+      confidence: confidence || 1.0,
       session: session || null,
       notes
     });
@@ -46,7 +84,8 @@ router.post('/', authMiddleware, upload.single('image'), async (req, res) => {
         damageType: report.damageType,
         severity: report.severity,
         location: report.location,
-        timestamp: report.timestamp
+        timestamp: report.timestamp,
+        confidence: report.confidence
       });
     }
 
@@ -59,7 +98,7 @@ router.post('/', authMiddleware, upload.single('image'), async (req, res) => {
 // GET - All reports with filters
 router.get('/', async (req, res) => {
   try {
-    const { damageType, severity, startDate, endDate, status } = req.query;
+    const { damageType, severity, startDate, endDate, status, limit, skip } = req.query;
     let filter = {};
 
     if (damageType) filter.damageType = damageType;
@@ -71,11 +110,18 @@ router.get('/', async (req, res) => {
       if (endDate) filter.timestamp.$lte = new Date(endDate);
     }
 
+    const limitVal = parseInt(limit) || 50;
+    const skipVal = parseInt(skip) || 0;
+
     const reports = await DamageReport.find(filter)
       .populate('session')
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(limitVal)
+      .skip(skipVal);
     
-    res.json(reports);
+    const total = await DamageReport.countDocuments(filter);
+    
+    res.json({ reports, total, limit: limitVal, skip: skipVal });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

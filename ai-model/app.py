@@ -17,8 +17,16 @@ CORS(app)
 class RoadDamageDetector:
     def __init__(self):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        # Load your pre-trained model here
-        # self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+        # Load YOLOv8 model
+        try:
+            from ultralytics import YOLO
+            # Load pre-trained YOLOv8 model or your custom trained model
+            self.model = YOLO('yolov8n.pt')  # nano model (you have yolov8n.pt in root)
+            self.model_loaded = True
+        except Exception as e:
+            print(f"Warning: Could not load YOLO model: {e}")
+            self.model = None
+            self.model_loaded = False
         self.classes = ['crack', 'pothole', 'undamaged']
         self.severity_map = {'crack': 'medium', 'pothole': 'high'}
         
@@ -53,35 +61,91 @@ class RoadDamageDetector:
             }
     
     def _run_inference(self, image):
-        """Placeholder inference - replace with actual model"""
-        # This is a mock implementation
-        # In production, use your actual model:
-        # results = self.model(image)
-        
-        # For demo, randomly detect damages
-        import random
-        
-        if random.random() > 0.7:  # 30% chance of damage
-            damage_types = ['crack', 'pothole']
-            damage_type = random.choice(damage_types)
-            severity_levels = ['low', 'medium', 'high']
-            severity = random.choice(severity_levels)
-            confidence = random.uniform(0.7, 0.99)
-            
-            return {
-                'detected': True,
-                'damageType': damage_type,
-                'severity': severity,
-                'confidence': confidence,
-                'boxes': [[100, 100, 50, 50]]
-            }
-        else:
+        """Real YOLO inference on image"""
+        if not self.model_loaded or self.model is None:
             return {
                 'detected': False,
                 'damageType': 'undamaged',
                 'severity': 'low',
-                'confidence': 1.0,
-                'boxes': []
+                'confidence': 0.0,
+                'boxes': [],
+                'error': 'Model not loaded'
+            }
+        
+        try:
+            # Run YOLO inference
+            results = self.model(image, conf=0.5)  # 50% confidence threshold
+            
+            detections = []
+            boxes = []
+            max_confidence = 0
+            detected_types = []
+            
+            for result in results:
+                if result.boxes is not None and len(result.boxes) > 0:
+                    for box in result.boxes:
+                        # Extract bounding box coordinates
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        conf = float(box.conf[0])
+                        cls_id = int(box.cls[0])
+                        
+                        boxes.append([float(x1), float(y1), float(x2), float(y2)])
+                        detections.append({
+                            'confidence': conf,
+                            'class': cls_id
+                        })
+                        
+                        if conf > max_confidence:
+                            max_confidence = conf
+            
+            if len(detections) > 0:
+                # Damage detected - classify type and severity
+                avg_confidence = sum([d['confidence'] for d in detections]) / len(detections)
+                
+                # Use the class with highest confidence
+                main_detection = max(detections, key=lambda x: x['confidence'])
+                class_id = main_detection['class']
+                
+                # Map class ID to name
+                if class_id < len(self.classes):
+                    damage_type = self.classes[class_id]
+                else:
+                    damage_type = 'pothole' if avg_confidence > 0.6 else 'crack'
+                
+                # Determine severity
+                if len(detections) >= 3 and avg_confidence > 0.75:
+                    severity = 'high'
+                elif avg_confidence > 0.65:
+                    severity = 'medium'
+                else:
+                    severity = 'low'
+                
+                return {
+                    'detected': True,
+                    'damageType': damage_type,
+                    'severity': severity,
+                    'confidence': round(avg_confidence, 4),
+                    'boxes': boxes
+                }
+            else:
+                # No damage detected
+                return {
+                    'detected': False,
+                    'damageType': 'undamaged',
+                    'severity': 'none',
+                    'confidence': 0.0,
+                    'boxes': []
+                }
+                
+        except Exception as e:
+            print(f"Inference error: {e}")
+            return {
+                'detected': False,
+                'damageType': 'undamaged',
+                'severity': 'low',
+                'confidence': 0.0,
+                'boxes': [],
+                'error': str(e)
             }
 
 # Initialize detector

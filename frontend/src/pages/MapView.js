@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import toast from 'react-hot-toast';
-import { Clock, Navigation, AlertTriangle, Layers, Crosshair, Map } from 'lucide-react';
+import { Clock, Navigation, Map as MapIcon, ShieldAlert } from 'lucide-react';
 import { reportsAPI } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Fix Leaflet icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -14,7 +15,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png'
 });
 
-// Component to dynamically update map center
 function MapUpdater({ center }) {
   const map = useMap();
   useEffect(() => {
@@ -31,223 +31,181 @@ export default function MapView() {
   const [selectedSeverity, setSelectedSeverity] = useState('');
   const [currentLocation, setCurrentLocation] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [mapType, setMapType] = useState('normal'); 
 
-  useEffect(() => {
-    const fetchReports = async () => {
-      try {
-        const res = await reportsAPI.getAll({});
-        setReports(res.data || []);
-      } catch (error) {
-        toast.error('Failed to load map data');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchReports();
-
-    // Clock interval
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+  const fetchReports = useCallback(async () => {
+    try {
+      const res = await reportsAPI.getAll({});
+      setReports(res.data.reports || []);
+    } catch (error) {
+      toast.error('Gis Data Stream Interrupted');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const requestLocation = () => {
+  const requestLocation = useCallback(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
           setCurrentLocation([latitude, longitude]);
-          toast.success('Location updated!');
         },
-        (error) => {
-          toast.error('Failed to access location. Please enable location services.');
-        }
+        () => toast.error('Satellite Fix Lost'),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
-    } else {
-      toast.error('Geolocation is not supported by your browser.');
     }
-  };
-
-  useEffect(() => {
-    requestLocation();
   }, []);
 
-  const getMarkerColor = (severity) => {
-    switch (severity) {
-      case 'high': return '#ef4444';
-      case 'medium': return '#f59e0b';
-      case 'low': return '#10b981';
-      default: return '#3b82f6';
-    }
-  };
+  useEffect(() => {
+    fetchReports();
+    requestLocation();
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [fetchReports, requestLocation]);
 
   const createCustomIcon = (severity) => {
+    const color = severity === 'high' ? '#F43F5E' : severity === 'medium' ? '#F59E0B' : '#10B981';
     return L.divIcon({
-      className: 'damage-marker',
-      html: `<div style="background: linear-gradient(135deg, ${getMarkerColor(severity)}, ${severity === 'high' ? '#b91c1c' : severity === 'medium' ? '#d97706' : '#059669'}); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 2px solid white; box-shadow: 0 0 15px ${getMarkerColor(severity)}80;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16],
-      popupAnchor: [0, -16]
+      className: 'custom-marker',
+      html: `<div style="background: ${color}; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 15px ${color}; border: 2px solid white;"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
     });
   };
 
   const currentUserIcon = L.divIcon({
-    className: 'current-location-marker',
-    html: `<div style="width: 24px; height: 24px; background-color: #3b82f6; border: 4px solid white; border-radius: 50%; box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);"></div><div style="position: absolute; top: -8px; left: -8px; width: 40px; height: 40px; background-color: rgba(59, 130, 246, 0.3); border-radius: 50%; animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
+    className: 'user-marker',
+    html: `<div style="width: 16px; height: 16px; background: #38bdf8; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 20px #38bdf8;"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
   });
 
-  const filteredReports = selectedSeverity
-    ? reports.filter(r => r.severity === selectedSeverity)
-    : reports;
-
-  const center = [40.7128, -74.0060]; // Default center (NYC)
-  const mapCenter = currentLocation || center;
+  const filteredReports = selectedSeverity ? reports.filter(r => r.severity === selectedSeverity) : reports;
+  const defaultCenter = [28.6139, 77.2090]; 
 
   return (
-    <div className="space-y-6">
-      {/* Header Overlay */}
-      <div className="glass-card rounded-2xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Map className="text-blue-400" />
-            Live Operations Map
-          </h1>
-          <p className="text-gray-400 mt-1 text-sm">Real-time geospatial tracking of road anomalies</p>
+    <div className="space-y-8 animate-enter">
+      {/* HUD Header */}
+      <div className="glass-panel rounded-[2rem] p-8 flex flex-col lg:flex-row justify-between items-center gap-6 border-white/5">
+        <div className="flex items-center gap-4">
+          <div className="p-4 bg-sky-500/10 rounded-2xl border border-sky-500/20">
+             <MapIcon size={24} className="text-sky-400" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-white tracking-tighter uppercase">Operations_Map</h1>
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-[0.3em]">Geospatial Intelligence Unit</p>
+          </div>
         </div>
         
-        {/* Clock & Location Info */}
-        <div className="flex gap-4 items-center flex-wrap">
-          <div className="flex items-center gap-2 bg-gray-800/50 px-4 py-2 rounded-xl border border-gray-700">
-            <Clock size={16} className="text-blue-400" />
-            <span className="text-sm font-medium text-gray-200" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-          </div>
-          <button 
-            onClick={requestLocation}
-            className="flex items-center gap-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-4 py-2 rounded-xl border border-blue-500/30 transition-colors"
-          >
-            <Navigation size={16} />
-            <span className="text-sm font-medium">Recenter</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Filters & Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2 glass-card rounded-xl p-2 flex gap-2 overflow-x-auto">
-          <FilterButton active={selectedSeverity === ''} onClick={() => setSelectedSeverity('')} label="All Markers" count={reports.length} color="blue" />
-          <FilterButton active={selectedSeverity === 'high'} onClick={() => setSelectedSeverity('high')} label="High" count={reports.filter(r => r.severity === 'high').length} color="red" />
-          <FilterButton active={selectedSeverity === 'medium'} onClick={() => setSelectedSeverity('medium')} label="Medium" count={reports.filter(r => r.severity === 'medium').length} color="orange" />
-          <FilterButton active={selectedSeverity === 'low'} onClick={() => setSelectedSeverity('low')} label="Low" count={reports.filter(r => r.severity === 'low').length} color="green" />
+        <div className="flex items-center gap-4">
+           <div className="glass-panel px-6 py-3 rounded-xl flex items-center gap-4 border-white/5 font-mono text-xs">
+              <Clock size={14} className="text-sky-400" />
+              <span className="text-white font-bold">{currentTime.toLocaleTimeString()}</span>
+           </div>
+           <button onClick={requestLocation} className="btn-secondary !rounded-xl !py-3 !px-5 !text-[10px] uppercase tracking-widest">
+              <Navigation size={14} /> Recalibrate
+           </button>
+           <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+              {['normal', 'satellite'].map(type => (
+                <button 
+                  key={type} 
+                  onClick={() => setMapType(type)}
+                  className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${mapType === type ? 'bg-sky-500 text-white shadow-lg' : 'text-gray-500 hover:text-white'}`}
+                >
+                  {type}
+                </button>
+              ))}
+           </div>
         </div>
       </div>
 
-      {/* Map Container */}
-      <div className="relative glass-card rounded-2xl overflow-hidden border border-gray-800" style={{ height: '65vh', minHeight: '500px' }}>
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0B0F19]/80 backdrop-blur-sm z-10">
-            <div className="relative w-16 h-16">
-              <div className="absolute inset-0 rounded-full border-t-2 border-blue-500 animate-spin"></div>
-              <div className="absolute inset-2 rounded-full border-r-2 border-purple-500 animate-spin" style={{ animationDirection: 'reverse' }}></div>
-            </div>
-          </div>
-        ) : null}
-        
-        <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%', zIndex: 1 }}>
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; OpenStreetMap contributors'
-          />
-          <MapUpdater center={currentLocation} />
-          
-          {currentLocation && (
-            <Marker position={currentLocation} icon={currentUserIcon}>
-              <Popup>
-                <div className="p-1 min-w-[120px]">
-                  <p className="font-bold text-gray-800">Your Location</p>
-                  <p className="text-xs text-gray-500 mt-1">Live tracking active</p>
-                </div>
-              </Popup>
-            </Marker>
-          )}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        {/* Left Stats & Filters */}
+        <div className="space-y-6">
+           <div className="glass-card rounded-[2rem] p-8 border-white/5">
+              <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-6">Threat Selection</h3>
+              <div className="space-y-2">
+                 <FilterBtn active={selectedSeverity === ''} onClick={() => setSelectedSeverity('')} label="All Sensors" color="sky" />
+                 <FilterBtn active={selectedSeverity === 'high'} onClick={() => setSelectedSeverity('high')} label="Critical" color="rose" />
+                 <FilterBtn active={selectedSeverity === 'medium'} onClick={() => setSelectedSeverity('medium')} label="Warning" color="amber" />
+                 <FilterBtn active={selectedSeverity === 'low'} onClick={() => setSelectedSeverity('low')} label="Nominal" color="emerald" />
+              </div>
+           </div>
 
-          {filteredReports.map((report) => (
-            <Marker
-              key={report._id}
-              position={[report.location?.lat || center[0], report.location?.lng || center[1]]}
-              icon={createCustomIcon(report.severity)}
-            >
-              <Popup>
-                <div className="p-1 min-w-[150px]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase text-white ${
-                      report.severity === 'high' ? 'bg-red-500' :
-                      report.severity === 'medium' ? 'bg-orange-500' :
-                      'bg-emerald-500'
-                    }`}>
-                      {report.severity}
-                    </span>
-                  </div>
-                  <p className="font-bold text-gray-800 capitalize mb-1">{report.damageType}</p>
-                  <p className="text-xs text-gray-500 flex items-center gap-1 mb-1">
-                    <Crosshair size={12} /> {report.location?.lat?.toFixed(5)}, {report.location?.lng?.toFixed(5)}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {new Date(report.timestamp).toLocaleString()}
-                  </p>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
-        
-        {/* Floating Legend Overlay */}
-        <div className="absolute bottom-6 right-6 z-[1000] glass-panel rounded-xl p-4 border border-gray-700 shadow-2xl backdrop-blur-md bg-[#111827]/80">
-          <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Layers size={14} /> Map Legend
-          </h3>
-          <div className="space-y-3">
-            <LegendItem color="bg-blue-500" label="Current Location" pulse />
-            <LegendItem color="bg-red-500" label="High Severity" />
-            <LegendItem color="bg-orange-500" label="Medium Severity" />
-            <LegendItem color="bg-emerald-500" label="Low Severity" />
-          </div>
+           <div className="glass-card rounded-[2rem] p-8 border-white/5">
+              <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <ShieldAlert size={14} /> Intelligence_Log
+              </h3>
+              <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                 {filteredReports.slice(0, 5).map(r => (
+                   <div key={r._id} className="p-4 bg-white/5 rounded-xl border border-white/5">
+                      <p className="text-[10px] font-black text-white uppercase truncate">{r.damageType}</p>
+                      <p className="text-[9px] text-gray-500 font-mono mt-1">{r.location?.lat.toFixed(4)}, {r.location?.lng.toFixed(4)}</p>
+                   </div>
+                 ))}
+              </div>
+           </div>
+        </div>
+
+        {/* Map View */}
+        <div className="lg:col-span-3 relative glass-card rounded-[2.5rem] overflow-hidden border-white/5 min-h-[600px] bg-black">
+          <AnimatePresence>
+            {loading && (
+              <motion.div 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl z-50"
+              >
+                <div className="w-20 h-20 border-t-2 border-sky-500 rounded-full animate-spin"></div>
+                <p className="mt-6 text-[10px] font-black text-sky-400 uppercase tracking-[0.4em] animate-pulse">Establishing Satellite Uplink</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <MapContainer center={currentLocation || defaultCenter} zoom={13} className="h-full w-full z-0 grayscale-[0.4] brightness-[0.8] contrast-[1.2]">
+            <TileLayer 
+              url={mapType === 'normal' ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"}
+            />
+            <MapUpdater center={currentLocation} />
+            {currentLocation && <Marker position={currentLocation} icon={currentUserIcon} />}
+            {filteredReports.map((report) => (
+              <Marker 
+                key={report._id} 
+                position={[report.location?.lat || defaultCenter[0], report.location?.lng || defaultCenter[1]]} 
+                icon={createCustomIcon(report.severity)}
+              >
+                <Popup className="premium-popup">
+                   <div className="p-2 font-mono">
+                      <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">{report.severity} Priority</p>
+                      <p className="text-xs font-bold text-black uppercase">{report.damageType}</p>
+                   </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
         </div>
       </div>
     </div>
   );
 }
 
-function FilterButton({ active, onClick, label, count, color }) {
-  const baseClasses = "flex-1 min-w-[100px] flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 border";
-  
-  let colorClasses = "";
-  if (active) {
-    if (color === 'blue') colorClasses = "bg-blue-600/20 text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.2)]";
-    if (color === 'red') colorClasses = "bg-red-600/20 text-red-400 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]";
-    if (color === 'orange') colorClasses = "bg-orange-600/20 text-orange-400 border-orange-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]";
-    if (color === 'green') colorClasses = "bg-emerald-600/20 text-emerald-400 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]";
-  } else {
-    colorClasses = "bg-transparent text-gray-400 border-gray-700/50 hover:bg-gray-800 hover:text-gray-300";
-  }
+function FilterBtn({ active, onClick, label, color }) {
+  const colors = {
+    sky: 'border-sky-500/20 text-sky-400 bg-sky-500/5',
+    rose: 'border-rose-500/20 text-rose-400 bg-rose-500/5',
+    amber: 'border-amber-500/20 text-amber-400 bg-amber-500/5',
+    emerald: 'border-emerald-500/20 text-emerald-400 bg-emerald-500/5'
+  };
 
   return (
-    <button onClick={onClick} className={`${baseClasses} ${colorClasses}`}>
-      <span>{label}</span>
-      <span className={`ml-2 px-2 py-0.5 rounded-full text-xs bg-gray-900/50`}>{count}</span>
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl border transition-all duration-500 ${active ? colors[color] + ' border-opacity-50 shadow-lg' : 'border-white/5 text-gray-500 hover:text-white hover:bg-white/5'}`}
+    >
+      <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
+      {active && <div className="w-1.5 h-1.5 rounded-full bg-current shadow-[0_0_10px_currentColor]"></div>}
     </button>
-  );
-}
-
-function LegendItem({ color, label, pulse }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className={`relative w-3 h-3 rounded-full ${color} shadow-[0_0_8px_currentColor]`}>
-        {pulse && <div className={`absolute inset-0 rounded-full ${color} animate-ping opacity-75`}></div>}
-      </div>
-      <span className="text-xs text-gray-300 font-medium">{label}</span>
-    </div>
   );
 }

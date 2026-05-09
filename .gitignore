@@ -1,59 +1,8 @@
-# Dependencies
-node_modules/
-__pycache__/
-*.pyc
-.Python
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-npm-debug.log*
-logs/
-*.log
-
-# Build outputs
-build/
-dist/
+﻿node_modules/
 .next/
-
-# Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# MongoDB
-mongodb_data/
-
-# Uploads
-uploads/
-*.jpg
-*.png
-*.jpeg
-
-# Cache
-.cache
-.pytest_cache
-.coverage
-
-# Temporary
-temp/
-tmp/
-*.tmp
-
-# IDE
-*.sublime-project
-*.sublime-workspace
-
-# Virtual environments
-venv/
-env/
-ENV/
+build/
+.env
+*.log
+__pycache__/
+.venv/
+runs/
