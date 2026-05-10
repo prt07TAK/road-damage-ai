@@ -15,7 +15,7 @@ export default function LiveFeed() {
   const startCamera = async () => {
   try {
     // Connect to Python AI with error handling
-    const ws = new WebSocket('https://road-damage-ai.onrender.com/ws/detect');
+    const ws = new WebSocket('wss://road-damage-ai.onrender.com/ws/detect');
     wsRef.current = ws;
 
     ws.onopen = () => {
