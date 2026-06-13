@@ -22,6 +22,7 @@ export const authAPI = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
   googleAuth: (data) => api.post('/auth/google', data),
+  firebaseAuth: (data) => api.post('/auth/firebase-google', data),
   getMe: () => api.get('/auth/me'),
 };
 

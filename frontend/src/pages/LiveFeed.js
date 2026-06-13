@@ -13,66 +13,66 @@ export default function LiveFeed() {
   const [totalDetected, setTotalDetected] = useState(0);
 
   const startCamera = async () => {
-  try {
-    // Connect to Python AI with error handling
-    const ws = new WebSocket('wss://road-damage-ai.onrender.com/ws/detect');
-    wsRef.current = ws;
+    try {
+      // Connect to Python AI with error handling
+      const ws = new WebSocket('ws://localhost:5001/ws/detect');
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('✅ AI Connected!');
-      setIsConnected(true);
-    };
+      ws.onopen = () => {
+        console.log('✅ AI Connected!');
+        setIsConnected(true);
+      };
 
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket Error:', error);
-      alert('Cannot connect to AI server! Make sure python ai_service.py is running on port 8000');
-    };
+      ws.onerror = (error) => {
+        console.error('❌ WebSocket Error:', error);
+        alert('Cannot connect to AI server! Make sure python app.py is running on port 5001');
+      };
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setResultFrame(data.frame);
-      setDamages(data.damages);
-      setTotalDetected(prev => prev + data.total);
-    };
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setResultFrame(data.frame);
+        setDamages(data.damages);
+        setTotalDetected(prev => prev + data.total);
+      };
 
-    ws.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
-      setIsConnected(false);
-    };
+      ws.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        setIsConnected(false);
+      };
 
-    // Start camera
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480 }
-    });
-    videoRef.current.srcObject = stream;
-    videoRef.current.play();
-    setCameraOn(true);
+      // Start camera
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 }
+      });
+      videoRef.current.srcObject = stream;
+      videoRef.current.play();
+      setCameraOn(true);
 
-    // Wait for WebSocket to connect before sending frames
-    setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        const canvas = canvasRef.current;
-        const video = videoRef.current;
-        if (!canvas || !video) return;
+      // Wait for WebSocket to connect before sending frames
+      setTimeout(() => {
+        intervalRef.current = setInterval(() => {
+          const canvas = canvasRef.current;
+          const video = videoRef.current;
+          if (!canvas || !video) return;
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        const frame = canvas.toDataURL('image/jpeg', 0.7);
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          canvas.getContext('2d').drawImage(video, 0, 0);
+          const frame = canvas.toDataURL('image/jpeg', 0.7);
 
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(frame);
-        } else {
-          console.log('WebSocket state:', wsRef.current?.readyState);
-        }
-      }, 300);
-    }, 1000); // wait 1 second for WS to connect
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(frame);
+          } else {
+            console.log('WebSocket state:', wsRef.current?.readyState);
+          }
+        }, 300);
+      }, 1000); // wait 1 second for WS to connect
 
-  } catch (err) {
-    console.error('Error:', err);
-    alert(`Error: ${err.message}`);
-  }
-};
+    } catch (err) {
+      console.error('Error:', err);
+      alert(`Error: ${err.message}`);
+    }
+  };
 
   const stopCamera = () => {
     clearInterval(intervalRef.current);
@@ -90,7 +90,7 @@ export default function LiveFeed() {
 
   return (
     <div className="min-h-screen bg-[#020617] text-white p-6">
-      
+
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-blue-400">
@@ -103,11 +103,10 @@ export default function LiveFeed() {
 
       {/* Status Bar */}
       <div className="flex gap-4 mb-6">
-        <span className={`px-4 py-2 rounded-full text-sm font-medium ${
-          isConnected 
-            ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-            : 'bg-red-500/20 text-red-400 border border-red-500/30'
-        }`}>
+        <span className={`px-4 py-2 rounded-full text-sm font-medium ${isConnected
+          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+          : 'bg-red-500/20 text-red-400 border border-red-500/30'
+          }`}>
           {isConnected ? '🟢 AI Connected' : '🔴 AI Disconnected'}
         </span>
         <span className="px-4 py-2 rounded-full text-sm font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
@@ -137,7 +136,7 @@ export default function LiveFeed() {
 
       {/* Video Feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        
+
         {/* Live Camera */}
         <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
           <h3 className="text-gray-400 text-sm mb-3 font-medium">
@@ -164,7 +163,7 @@ export default function LiveFeed() {
             />
           ) : (
             <div className="w-full flex items-center justify-center rounded-xl bg-black/40 border border-white/5"
-                 style={{ minHeight: '240px' }}>
+              style={{ minHeight: '240px' }}>
               <p className="text-gray-600">
                 {cameraOn ? 'Processing...' : 'Start camera to see AI output'}
               </p>

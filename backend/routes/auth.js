@@ -154,4 +154,47 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 });
 
+// Firebase Google Auth (Sign up / Sign in)
+router.post('/firebase-google', async (req, res) => {
+  try {
+    const { email, name, googleId } = req.body;
+
+    if (!email || !googleId) {
+      return res.status(400).json({ message: 'Email and Google ID are required' });
+    }
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = await User.create({
+        name: name || 'Google User',
+        email,
+        role: 'engineer',
+        authProvider: 'google',
+        googleId
+      });
+    } else if (user.authProvider === 'local') {
+      return res.status(400).json({
+        message: 'Email already registered with password login'
+      });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
+      await user.save();
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      token
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Firebase authentication failed' });
+  }
+});
+
 module.exports = router;

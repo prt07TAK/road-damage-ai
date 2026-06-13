@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const DamageReportSchema = new mongoose.Schema({
   imageURL: {
     type: String,
-    required: true
+    default: ''
   },
   location: {
     lat: {
@@ -17,7 +17,7 @@ const DamageReportSchema = new mongoose.Schema({
   },
   damageType: {
     type: String,
-    enum: ['crack', 'pothole', 'rutting', 'patch', 'debris', 'undamaged', 'intact'],
+    enum: ['crack', 'pothole', 'rutting', 'patch', 'debris', 'undamaged', 'intact', 'Alligator', 'Edge Cracking', 'Lateral-Crack', 'Longitudinal-Crack', 'Ravelling', 'Rutting', 'Striping'],
     required: true
   },
   severity: {

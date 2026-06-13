@@ -12,6 +12,10 @@ from pathlib import Path
 app = Flask(__name__)
 CORS(app)
 
+from flask_sock import Sock
+import json
+sock = Sock(app)
+
 # Simulated AI Model Loading
 # In production, you would load a real YOLO/CNN model
 class RoadDamageDetector:
@@ -21,14 +25,24 @@ class RoadDamageDetector:
         try:
             from ultralytics import YOLO
             # Load pre-trained YOLOv8 model or your custom trained model
-            self.model = YOLO('yolov8n.pt')  # nano model (you have yolov8n.pt in root)
+            self.model = YOLO('best.pt')  # custom trained model
             self.model_loaded = True
         except Exception as e:
             print(f"Warning: Could not load YOLO model: {e}")
             self.model = None
             self.model_loaded = False
-        self.classes = ['crack', 'pothole', 'undamaged']
-        self.severity_map = {'crack': 'medium', 'pothole': 'high'}
+        # Match the classes from your trained model dataset
+        self.classes = ['Alligator', 'Edge Cracking', 'Lateral-Crack', 'Longitudinal-Crack', 'Ravelling', 'Rutting', 'Striping', 'pothole']
+        self.severity_map = {
+            'Alligator': 'high',
+            'Edge Cracking': 'low',
+            'Lateral-Crack': 'medium',
+            'Longitudinal-Crack': 'medium',
+            'Ravelling': 'medium',
+            'Rutting': 'high',
+            'Striping': 'low',
+            'pothole': 'high'
+        }
         
     def detect(self, image_data):
         """
@@ -44,6 +58,11 @@ class RoadDamageDetector:
         try:
             # Convert bytes to image
             image = Image.open(io.BytesIO(image_data))
+            
+            # Convert RGBA to RGB (YOLO expects 3 channels, not 4)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+                
             image_np = np.array(image)
             
             # Placeholder detection logic
@@ -74,7 +93,7 @@ class RoadDamageDetector:
         
         try:
             # Run YOLO inference
-            results = self.model(image, conf=0.5)  # 50% confidence threshold
+            results = self.model(image, conf=0.1)  # 10% confidence threshold for testing
             
             detections = []
             boxes = []
@@ -112,13 +131,12 @@ class RoadDamageDetector:
                 else:
                     damage_type = 'pothole' if avg_confidence > 0.6 else 'crack'
                 
-                # Determine severity
-                if len(detections) >= 3 and avg_confidence > 0.75:
-                    severity = 'high'
-                elif avg_confidence > 0.65:
-                    severity = 'medium'
-                else:
-                    severity = 'low'
+                # Determine severity based on type
+                severity = self.severity_map.get(damage_type, 'low')
+                
+                # If multiple damages, increase severity
+                if len(detections) >= 3 and severity != 'high':
+                    severity = 'medium' if severity == 'low' else 'high'
                 
                 return {
                     'detected': True,
@@ -236,6 +254,86 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
+
+@sock.route('/ws/detect')
+def ws_detect(ws):
+    import base64
+    from PIL import Image, ImageDraw
+    import io
+    import time
+    
+    last_report_time = 0
+    
+    while True:
+        try:
+            message = ws.receive()
+            if not message:
+                break
+                
+            header, encoded = message.split(",", 1)
+            image_data = base64.b64decode(encoded)
+            
+            result = detector.detect(image_data)
+            
+            image = Image.open(io.BytesIO(image_data))
+            if result['detected'] and len(result['boxes']) > 0:
+                draw = ImageDraw.Draw(image)
+                for box in result['boxes']:
+                    draw.rectangle([box[0], box[1], box[2], box[3]], outline="red", width=3)
+            
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            frame_out = f"data:image/jpeg;base64,{img_str}"
+            
+            damages = []
+            if result['detected']:
+                damages.append({
+                    'type': result['damageType'],
+                    'severity': result['severity'],
+                    'confidence': result['confidence']
+                })
+                
+                # Auto-report any issue
+                current_time = time.time()
+                if current_time - last_report_time > 5:
+                    last_report_time = current_time
+                    try:
+                        import random
+                        import requests
+                        import threading
+                        
+                        def send_report():
+                            try:
+                                lat = 28.7041 + random.uniform(-0.01, 0.01)
+                                lng = 77.1025 + random.uniform(-0.01, 0.01)
+                                payload = {
+                                    'location': {'lat': lat, 'lng': lng},
+                                    'damageType': result['damageType'],
+                                    'severity': result['severity'],
+                                    'confidence': result['confidence'],
+                                    'notes': 'Auto-generated by AI backend'
+                                }
+                                requests.post('http://localhost:5000/api/reports/auto-report', json=payload, timeout=2)
+                            except Exception as req_e:
+                                print(f"Auto-report post failed: {req_e}")
+                        
+                        # Run in a background thread to not block the websocket
+                        threading.Thread(target=send_report).start()
+                    except Exception as e:
+                        print(f"Failed to initiate auto-report: {e}")
+                
+            response = {
+                'frame': frame_out,
+                'damages': damages,
+                'total': 1 if result['detected'] else 0
+            }
+            
+            ws.send(json.dumps(response))
+            
+        except Exception as e:
+            print(f"WS Error: {e}")
+            break
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

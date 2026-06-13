@@ -98,7 +98,7 @@ export default function Reports() {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <FilterSelect name="damageType" value={filters.damageType} onChange={handleFilterChange} options={['crack', 'pothole']} label="Entity Type" />
+          <FilterSelect name="damageType" value={filters.damageType} onChange={handleFilterChange} options={['crack', 'pothole', 'rutting', 'Alligator', 'Edge Cracking', 'Lateral-Crack', 'Longitudinal-Crack', 'Ravelling', 'Striping']} label="Entity Type" />
           <FilterSelect name="severity" value={filters.severity} onChange={handleFilterChange} options={['high', 'medium', 'low']} label="Priority" />
           <FilterSelect name="status" value={filters.status} onChange={handleFilterChange} options={['reported', 'assigned', 'in-progress', 'resolved']} label="Status" />
           
@@ -164,7 +164,7 @@ export default function Reports() {
                        </span>
                     </td>
                     <td className="px-8 py-6 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                       {new Date(report.timestamp).toLocaleDateString()}
+                       {new Date(report.timestamp).toLocaleString()}
                     </td>
                     <td className="px-8 py-6">
                        <div className="flex items-center gap-4">
